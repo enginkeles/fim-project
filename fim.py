@@ -2,11 +2,24 @@ import os
 import hashlib
 import sys
 import json
+from datetime import datetime
 
 with open("config.json") as f:
     cfg = json.load(f)
 folder_to_monitor = cfg["folder_to_monitor"]
 baseline_file = cfg["baseline_path"]
+log_file = cfg["events_log"]
+
+def log_event(event_type, **details):
+    record = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "event": event_type,
+        **details
+    }
+
+    os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+    with open(log_file, "a", encoding="utf-8") as lf:
+        lf.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 def get_hash(path):
     sha256_hash = hashlib.sha256()
@@ -40,10 +53,18 @@ def collect_baseline():
     
     print("Baseline created.")
 
+    log_event(
+        "baseline_created",
+        folder=folder_to_monitor,
+        file_count=len(baseline_data)
+    )
+
 def scan_changes():
     if not os.path.exists(baseline_file) or os.path.getsize(baseline_file) == 0:
         print("Baseline not found - creating new baseline.")
         collect_baseline()
+
+    log_event("scan_started", folder=folder_to_monitor)
     
     with open(baseline_file, "r", encoding="utf-8") as f:
         baseline = json.load(f)
@@ -78,8 +99,34 @@ def scan_changes():
 
     if not added_files and not removed_files and not modified_files:
         print("No changes detected.")
+        log_event(
+            "scan_summary",
+            folder=folder_to_monitor,
+            counts={
+                "added": len(added_files),
+                "removed": len(removed_files),
+                "modified": len(modified_files)
+            }
+        )
     else:
         print(changes)
+        log_event(
+            "scan_summary",
+            folder=folder_to_monitor,
+            counts={
+                "added": len(added_files),
+                "removed": len(removed_files),
+                "modified": len(modified_files)
+            }
+        )
+
+        for path in added_files:
+            log_event("file_added", path=path)
+        for path in removed_files:
+            log_event("file_removed", path=path)
+        for path in modified_files:
+            log_event("file_modified", path=path)
+
 
 def main():
     while True:
